@@ -1,4 +1,6 @@
 from calibre.web.feeds.recipes import BasicNewsRecipe
+from calibre import browser
+from mechanize import Request
 import json
 import re
 
@@ -19,28 +21,37 @@ class Fortune(BasicNewsRecipe):
     no_javascript = True
     no_stylesheets = True
     needs_subscription = 'optional'
-    delay = 2
+    delay = 3
     remove_attributes = ['style', 'height', 'width']
     remove_empty_feeds = True
 
-    # ===== 添加更真实的请求头 =====
-    def get_browser(self):
-        br = BasicNewsRecipe.get_browser(self)
-        # 添加完整的浏览器头
-        br.addheaders = [
-            ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'),
-            ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'),
-            ('Accept-Language', 'en-US,en;q=0.9'),
-            ('Accept-Encoding', 'gzip, deflate, br'),
-            ('Connection', 'keep-alive'),
-            ('Upgrade-Insecure-Requests', '1'),
-            ('Sec-Fetch-Dest', 'document'),
-            ('Sec-Fetch-Mode', 'navigate'),
-            ('Sec-Fetch-Site', 'none'),
-            ('Sec-Fetch-User', '?1'),
-            ('Cache-Control', 'max-age=0'),
-        ]
-        return br
+    # ===== 自定义 get_article，使用带完整头的浏览器 =====
+    def get_article(self, url):
+        """重写文章获取方法，使用完整请求头"""
+        try:
+            # 创建带完整头的请求
+            br = browser()
+            br.addheaders = [
+                ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'),
+                ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'),
+                ('Accept-Language', 'en-US,en;q=0.9'),
+                ('Accept-Encoding', 'gzip, deflate, br'),
+                ('Connection', 'keep-alive'),
+                ('Upgrade-Insecure-Requests', '1'),
+                ('Sec-Fetch-Dest', 'document'),
+                ('Sec-Fetch-Mode', 'navigate'),
+                ('Sec-Fetch-Site', 'none'),
+                ('Sec-Fetch-User', '?1'),
+                ('Cache-Control', 'max-age=0'),
+                ('Referer', 'https://fortune.com/'),
+            ]
+            req = Request(url, headers=dict(br.addheaders))
+            response = br.open(req)
+            content = response.read().decode('utf-8', errors='ignore')
+            return content
+        except Exception as e:
+            self.log(f'Error fetching article {url}: {e}')
+            return None
 
     # ===== 只保留文章主要内容 =====
     keep_only_tags = [
