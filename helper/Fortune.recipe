@@ -23,7 +23,7 @@ class Fortune(BasicNewsRecipe):
     remove_attributes = ['style', 'height', 'width']
     remove_empty_feeds = True
 
-    # ===== 保留内容（不要过度限制） =====
+    # ===== 不要过度限制 keep_only_tags =====
     keep_only_tags = [
         dict(name='article'),
         dict(name='h1'),
@@ -36,21 +36,22 @@ class Fortune(BasicNewsRecipe):
         dict(name='figcaption'),
         dict(name='blockquote'),
         classes('wp-block-paragraph'),
+        dict(attrs={'data-cy': 'article-author-and-date'}),
+        dict(attrs={'data-cy': 'feature-byline-publish-date'}),
+        dict(attrs={'data-cy': 'article-eyebrow'}),
     ]
 
-    # ===== 移除垃圾内容 =====
+    # ===== 只移除明确的广告和脚本 =====
     remove_tags = [
         dict(name=['script', 'style', 'noscript', 'iframe', 'svg', 'path', 'template']),
         dict(attrs={'class': lambda x: x and any(
             keyword in x.lower() for keyword in 
-            ['ad-', 'promo-', 'social-', 'share-', 'related', 'sidebar', 
-             'trending', 'most-popular', 'recirc', 'newsletter', 'subscribe',
-             'pagination', 'breadcrumb', 'banner', 'modal', 'cookie']
+            ['ad-', 'promo-', 'social-', 'share-', 'sidebar', 'trending', 
+             'most-popular', 'recirc', 'newsletter', 'subscribe', 'pagination']
         )}),
         dict(attrs={'id': lambda x: x and any(
             keyword in x.lower() for keyword in 
-            ['ad', 'promo', 'social', 'share', 'sidebar',
-             'trending', 'popular', 'recirc']
+            ['ad', 'promo', 'social', 'share', 'sidebar', 'trending', 'popular', 'recirc']
         )}),
         dict(name='div', attrs={'role': 'button'}),
         dict(attrs={'data-empty': 'true'}),
@@ -77,35 +78,15 @@ class Fortune(BasicNewsRecipe):
             color: #222;
         }
         h1 { font-size: 1.8em; font-weight: bold; margin: 0.5em 0; color: #000; }
-        .article-eyebrow { 
-            color: #8B0000; 
-            font-weight: bold; 
-            font-size: 0.85em; 
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
+        .article-eyebrow { color: #8B0000; font-weight: bold; font-size: 0.85em; text-transform: uppercase; }
         .byline { color: #444; font-size: 0.95em; font-style: italic; }
         .author-role { color: #666; font-size: 0.9em; }
         .date { color: #888; font-size: 0.9em; }
         img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
-        figure { margin: 1em 0; text-align: center; }
-        figcaption { font-size: 0.85em; color: #666; text-align: center; }
         p { margin: 0.8em 0; }
         blockquote { margin: 1em 2em; padding: 0.5em 1em; border-left: 3px solid #ccc; }
-        .calibre_navbar { 
-            font-size: 0.85em; 
-            color: #666; 
-            padding: 10px 0; 
-            border-bottom: 1px solid #ddd; 
-            margin-bottom: 20px;
-        }
-        .calibre_navbar1 { 
-            font-size: 0.85em; 
-            color: #666; 
-            padding: 10px 0; 
-            border-top: 1px solid #ddd; 
-            margin-top: 20px;
-        }
+        .calibre_navbar { font-size: 0.85em; color: #666; padding: 10px 0; border-bottom: 1px solid #ddd; margin-bottom: 20px; }
+        .calibre_navbar1 { font-size: 0.85em; color: #666; padding: 10px 0; border-top: 1px solid #ddd; margin-top: 20px; }
         .wp-block-paragraph { margin: 0.8em 0; }
     '''
 
@@ -118,13 +99,20 @@ class Fortune(BasicNewsRecipe):
         for ai in soup.findAll(name='amp-img'):
             ai.name = 'img'
 
-        # ===== 删除推荐阅读模块 =====
-        for elem in soup.findAll(text=re.compile(r'Most Popular|Trending|Recommended Video|Latest from the Magazine', re.IGNORECASE)):
+        # ===== 只删除明确的垃圾内容 =====
+        # 删除 "Most Popular" 模块
+        for elem in soup.findAll(text=re.compile(r'Most Popular', re.IGNORECASE)):
             parent = elem.parent
             if parent:
                 parent.decompose()
-
-        # 删除数字 1, 2, 3（推荐阅读序号）
+        
+        # 删除 "Trending" 模块
+        for elem in soup.findAll(text=re.compile(r'Trending', re.IGNORECASE)):
+            parent = elem.parent
+            if parent:
+                parent.decompose()
+        
+        # 删除数字 1, 2, 3
         for elem in soup.findAll(text=re.compile(r'^[123]$')):
             parent = elem.parent
             if parent:
@@ -151,10 +139,11 @@ class Fortune(BasicNewsRecipe):
                 primary_img = img
                 break
         
-        for img in images:
-            img.decompose()
-        
         if primary_img:
+            for img in images:
+                if img != primary_img:
+                    img.decompose()
+            # 压缩主图
             src = primary_img.get('src', '') or primary_img.get('data-src', '')
             if src and 'fortune.com' in src:
                 clean_src = src.split('?')[0]
@@ -165,9 +154,6 @@ class Fortune(BasicNewsRecipe):
             for attr in ['data-src', 'data-srcset', 'data-nimg', 'sizes', 'srcset']:
                 if primary_img.has_attr(attr):
                     del primary_img[attr]
-            article = soup.find('article')
-            if article:
-                article.insert(0, primary_img)
 
         # ===== 提取元数据 =====
         # 领域
@@ -246,36 +232,36 @@ class Fortune(BasicNewsRecipe):
             self.log('Using default URL: https://fortune.com/magazine/')
 
         soup = self.index_to_soup(source_url)
-
-        # ===== 从 __NEXT_DATA__ 提取文章列表 =====
         articles = []
+
+        # ===== 从 __NEXT_DATA__ 提取 =====
         script_tag = soup.find('script', id='__NEXT_DATA__')
-        
         if script_tag:
             try:
                 data = json.loads(script_tag.string)
                 self.log('Found __NEXT_DATA__, parsing...')
                 
-                # 正确的路径
+                # 正确的数据路径
                 page_props = data.get('props', {}).get('pageProps', {})
                 content = page_props.get('content', {})
                 components = content.get('components', [])
                 
                 for component in components:
                     if component.get('type') == 'COLLECTION':
-                        section_name = component.get('name', '')
                         for article in component.get('articles', []):
                             url = article.get('url', '')
                             title = article.get('headline', '') or article.get('title', '')
                             if url and title:
                                 if not url.startswith('http'):
                                     url = 'https://fortune.com' + url
-                                articles.append({
-                                    'title': title,
-                                    'url': url,
-                                    'description': article.get('rubric', '')
-                                })
-                                self.log(f'Found: {title}')
+                                # 只保留 2026 年的文章
+                                if '/2026/' in url:
+                                    articles.append({
+                                        'title': title,
+                                        'url': url,
+                                        'description': article.get('rubric', '')
+                                    })
+                                    self.log(f'Found: {title}')
                 
                 if articles:
                     self.log(f'✅ Found {len(articles)} articles from __NEXT_DATA__')
@@ -284,7 +270,7 @@ class Fortune(BasicNewsRecipe):
             except Exception as e:
                 self.log(f'Error parsing __NEXT_DATA__: {e}')
 
-        # ===== 从 HTML 直接提取（备用） =====
+        # ===== 从 HTML 提取（备用） =====
         self.log('Trying direct HTML parsing...')
         for a in soup.find_all('a', href=True):
             href = a.get('href', '')
