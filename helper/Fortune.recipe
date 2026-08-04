@@ -23,6 +23,25 @@ class Fortune(BasicNewsRecipe):
     remove_attributes = ['style', 'height', 'width']
     remove_empty_feeds = True
 
+    # ===== 添加更真实的请求头 =====
+    def get_browser(self):
+        br = BasicNewsRecipe.get_browser(self)
+        # 添加完整的浏览器头
+        br.addheaders = [
+            ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'),
+            ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'),
+            ('Accept-Language', 'en-US,en;q=0.9'),
+            ('Accept-Encoding', 'gzip, deflate, br'),
+            ('Connection', 'keep-alive'),
+            ('Upgrade-Insecure-Requests', '1'),
+            ('Sec-Fetch-Dest', 'document'),
+            ('Sec-Fetch-Mode', 'navigate'),
+            ('Sec-Fetch-Site', 'none'),
+            ('Sec-Fetch-User', '?1'),
+            ('Cache-Control', 'max-age=0'),
+        ]
+        return br
+
     # ===== 只保留文章主要内容 =====
     keep_only_tags = [
         dict(name='article'),
@@ -149,10 +168,6 @@ class Fortune(BasicNewsRecipe):
         .wp-block-paragraph { margin: 0.8em 0; }
     '''
 
-    def get_browser(self):
-        br = BasicNewsRecipe.get_browser(self)
-        return br
-
     def preprocess_html(self, soup, *a):
         # 将 amp-img 转换为 img
         for ai in soup.findAll(name='amp-img'):
@@ -186,16 +201,11 @@ class Fortune(BasicNewsRecipe):
             if parent:
                 parent.decompose()
         
-        # 删除数字 1, 2, 3（推荐阅读序号）
+        # 删除数字 1, 2, 3
         for div in soup.findAll('div', attrs={'class': lambda x: x and 'flex' in x.lower()}):
             text = div.get_text(strip=True)
             if text in ['1', '2', '3'] or re.match(r'^[123]\s*$', text):
                 div.decompose()
-        
-        for span in soup.findAll('span', attrs={'class': lambda x: x and 'flex' in x.lower()}):
-            text = span.get_text(strip=True)
-            if text in ['1', '2', '3'] or re.match(r'^[123]\s*$', text):
-                span.decompose()
         
         # 删除页脚版权信息
         for elem in soup.findAll(text=re.compile(r'© 2026 Fortune Media IP Limited|FORTUNE is a trademark|Terms of Use|Privacy Policy|Do Not Sell')):
@@ -214,9 +224,6 @@ class Fortune(BasicNewsRecipe):
             div.decompose()
         
         for div in soup.findAll('div', attrs={'data-cy': 'article-related-recirc'}):
-            div.decompose()
-        
-        for div in soup.findAll('div', attrs={'id': lambda x: x and 'recirc' in x.lower()}):
             div.decompose()
 
         # ============================================================
@@ -271,7 +278,7 @@ class Fortune(BasicNewsRecipe):
         # 3. 提取文章元数据
         # ============================================================
         
-        # 3.1 提取领域（eyebrow）
+        # 3.1 提取领域
         eyebrow = soup.find(attrs={'data-cy': 'article-eyebrow'})
         if eyebrow:
             eyebrow_text = eyebrow.get_text(strip=True)
@@ -307,7 +314,6 @@ class Fortune(BasicNewsRecipe):
             for span in author_div.findAll('span'):
                 text = span.get_text(strip=True)
                 if text and not text.startswith('By') and len(text) < 50:
-                    # 检查是否是职位（不包含日期关键词）
                     if not any(word in text.lower() for word in ['august', 'july', 'june', 'may', 'am', 'pm', 'et']):
                         tag = soup.new_tag('div')
                         tag['class'] = 'author-role'
@@ -328,12 +334,8 @@ class Fortune(BasicNewsRecipe):
                 byline = soup.find('div', class_='byline')
                 if byline:
                     byline.insert_after(tag)
-                else:
-                    h1 = soup.find('h1')
-                    if h1:
-                        h1.insert_after(tag)
 
-        # 3.5 删除原始作者/日期元素（避免重复）
+        # 3.5 删除原始作者/日期元素
         if author_div:
             author_div.decompose()
         if date_elem:
@@ -443,7 +445,6 @@ class Fortune(BasicNewsRecipe):
                 self._recursive_find_articles(item, articles, seen)
 
     def preprocess_raw_html(self, raw_html, url):
-        # 清理无效的命名空间
         raw_html = raw_html.replace('xmlns:xmlns="http://www.w3.org/2000/svg"', '')
         raw_html = raw_html.replace('xmlns:xmlns="http://www.w3.org/1999/xhtml"', '')
         return BasicNewsRecipe.preprocess_raw_html(self, raw_html, url)
