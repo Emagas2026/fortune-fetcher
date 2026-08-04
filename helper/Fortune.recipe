@@ -1,4 +1,6 @@
 from calibre.web.feeds.recipes import BasicNewsRecipe
+import json
+import re
 
 
 def classes(classes):
@@ -24,27 +26,19 @@ class Fortune(BasicNewsRecipe):
     title = 'Fortune Magazine'
     __author__ = 'Rick Shang'
 
-    description = 'FORTUNE is a global business magazine that has been revered in its content and credibility since 1930. FORTUNE covers the entire field of business, including specific companies and business trends, prominent business leaders, and new ideas shaping the global marketplace.'
+    description = 'FORTUNE is a global business magazine that has been revered in its content and credibility since 1930.'
     language = 'en'
     category = 'news'
     encoding = 'UTF-8'
-    
-    # 保留的内容
-    keep_only_tags = [
-        classes('amp-wp-title amp-wp-dek amp-header-meta amp-wp-article-featured-image amp-wp-article-content'),
-    ]
 
     no_javascript = True
     no_stylesheets = True
     needs_subscription = 'optional'
-    
-    # 延迟设置，避免被限制
+
     delay = 2
-    
-    # 去除广告和无关元素
     remove_attributes = ['style', 'height', 'width']
     remove_empty_feeds = True
-    
+
     # ===== 添加 recipe_specific_options =====
     recipe_specific_options = {
         'issue_url': {
@@ -54,16 +48,36 @@ class Fortune(BasicNewsRecipe):
         },
     }
 
+    extra_css = '''
+        img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+        h1 { font-size: 1.8em; font-weight: bold; }
+        h2 { font-size: 1.4em; font-weight: bold; margin-top: 1em; }
+        h4 { font-size: 1.2em; font-weight: bold; }
+        .article-title { font-size: 1.2em; font-weight: bold; }
+        .article-meta { color: #666; font-size: 0.9em; }
+        .article-summary { color: #444; font-size: 0.95em; margin: 0.5em 0; }
+        .article-item { border-bottom: 1px solid #e0e0e0; padding: 1em 0; }
+        .article-item:last-child { border-bottom: none; }
+        blockquote { margin: 1em 2em; color: #404040; }
+        .section-header { 
+            font-size: 1.6em; 
+            font-weight: bold; 
+            color: #8B0000; 
+            border-bottom: 2px solid #8B0000;
+            padding-bottom: 5px;
+            margin-top: 1.5em;
+        }
+    '''
+
     def get_browser(self):
         br = BasicNewsRecipe.get_browser(self)
-        # Fortune 不需要登录，移除登录逻辑
         return br
 
     def preprocess_html(self, soup, *a):
         # 将 amp-img 转换为 img
         for ai in soup.findAll(name='amp-img'):
             ai.name = 'img'
-        
+
         # 处理图片 URL
         for img in soup.findAll('img', src=True):
             if 'fortune.com' in img['src'] and 'cdn-cgi' not in img['src']:
@@ -71,139 +85,148 @@ class Fortune(BasicNewsRecipe):
                     'fortune.com/',
                     'fortune.com/cdn-cgi/image/width=600,quality=80,format=auto/'
                 )
-        
+
         return soup
 
     def parse_index(self):
-        articles = []
-
         # ===== 获取自定义 URL，如果没有则使用默认 =====
         issue_url = self.recipe_specific_options.get('issue_url', '')
         if issue_url:
             source_url = issue_url
             self.log(f'Using custom URL: {source_url}')
         else:
-            source_url = 'https://fortune.com/section/magazine/'
-            self.log('Using default URL: https://fortune.com/section/magazine/')
+            # 默认获取最新一期
+            source_url = 'https://fortune.com/magazine/'
+            self.log('Using default URL: https://fortune.com/magazine/')
 
-        # 获取杂志列表
+        # 获取页面
         soup = self.index_to_soup(source_url)
 
-        # ===== 适配新页面的文章选择器 =====
-        # 尝试多种可能的选择器
+        # ===== 方法 1: 从 __NEXT_DATA__ 提取 =====
         articles = []
-        
-        # 方法 1: 查找 article 标签（新页面结构）
-        for article in soup.findAll('article'):
-            a = article.find('a', href=True)
-            if not a:
-                continue
-            
-            href = a['href']
-            # 只处理杂志文章链接
-            if '/package/' in href or '/magazine/' in href:
-                url = href.rstrip('/')
-                # 尝试添加 /amp 后缀，但如果页面不支持，就用原链接
-                # 先尝试 amp 版本
-                amp_url = url + '/amp'
-                
-                # 提取标题
-                title = self.tag_to_string(a)
-                if not title:
-                    # 尝试从 h2 或 h3 提取
-                    header = article.find(['h2', 'h3'])
-                    if header:
-                        title = self.tag_to_string(header)
-                
-                if not title:
-                    continue
-                
-                title = title.strip()
-                if title.startswith('Magazine'):
-                    title = title[len('Magazine'):].strip()
-                
-                # 提取摘要
-                desc = ''
-                desc_elem = article.find('p', attrs={'class': lambda x: x and 'excerpt' in x.lower() if x else False})
-                if desc_elem:
-                    desc = self.tag_to_string(desc_elem)
-                
-                # 如果没有找到摘要，尝试其他选择器
-                if not desc:
-                    for p in article.findAll('p'):
-                        text = self.tag_to_string(p)
-                        if len(text) > 30 and text != title:
-                            desc = text
-                            break
-                
-                self.log(f'📄 {title}')
-                self.log(f'   URL: {amp_url}')
-                
-                articles.append({
-                    'title': title,
-                    'url': amp_url,
-                    'description': desc
-                })
-        
-        # 方法 2: 如果方法 1 没找到，尝试旧的 li 选择器（兼容旧页面）
-        if not articles:
-            self.log('Trying fallback parsing with old selector...')
-            for li in soup.findAll('li', attrs={'class': lambda x: x and 'termArchiveContentList__item--' in x}):
-                a = li.find('a', href=True)
-                if not a:
-                    continue
-                
-                url = a['href'].rstrip('/') + '/amp'
-                
-                div = li.find(attrs={'class': lambda x: x and 'termArchiveContentListItem__title--' in x})
-                if not div:
-                    continue
-                    
-                title = self.tag_to_string(div)
-                if title.startswith('Magazine'):
-                    title = title[len('Magazine'):]
-                title = title.strip()
-                
-                desc = ''
-                div = li.find(attrs={'class': lambda x: x and 'termArchiveContentListItem__excerpt--' in x})
-                if div is not None:
-                    desc = self.tag_to_string(div)
-                
-                self.log(f'📄 {title}')
-                self.log(f'   URL: {url}')
-                
-                articles.append({
-                    'title': title,
-                    'url': url,
-                    'description': desc
-                })
-        
-        # 方法 3: 直接查找所有包含杂志链接的 a 标签
-        if not articles:
-            self.log('Trying fallback parsing with direct link search...')
-            for a in soup.findAll('a', href=True):
-                href = a['href']
-                if '/package/' in href or '/magazine/' in href:
-                    # 避免重复
-                    url = href.rstrip('/')
-                    amp_url = url + '/amp'
-                    
-                    title = self.tag_to_string(a)
-                    if title and len(title) > 5:
-                        title = title.strip()
-                        if title.startswith('Magazine'):
-                            title = title[len('Magazine'):].strip()
-                        
-                        # 检查是否已存在
-                        existing_urls = [item['url'] for item in articles]
-                        if amp_url not in existing_urls:
-                            self.log(f'📄 {title}')
-                            self.log(f'   URL: {amp_url}')
+        script_tag = soup.find('script', id='__NEXT_DATA__')
+
+        if script_tag:
+            try:
+                data = json.loads(script_tag.string)
+                self.log('Found __NEXT_DATA__, parsing...')
+
+                # 提取文章列表
+                articles = self._extract_from_next_data(data)
+                if articles:
+                    self.log(f'✅ Found {len(articles)} articles from __NEXT_DATA__')
+                    return [('Articles', articles)]
+            except Exception as e:
+                self.log(f'Error parsing __NEXT_DATA__: {e}')
+
+        # ===== 方法 2: 从 HTML 直接提取 =====
+        self.log('Trying direct HTML parsing...')
+        articles = self._extract_from_html(soup)
+
+        if articles:
+            self.log(f'✅ Found {len(articles)} articles from HTML')
+            return [('Articles', articles)]
+
+        self.log('No articles found')
+        return []
+
+    def _extract_from_next_data(self, data):
+        """从 __NEXT_DATA__ JSON 中提取文章"""
+        articles = []
+        seen = set()
+
+        # 尝试不同的数据路径
+        try:
+            # 路径 1: props.pageProps.content.components
+            components = data.get('props', {}).get('pageProps', {}).get('content', {}).get('components', [])
+            for component in components:
+                # 查找文章卡片
+                if component.get('type') == 'COLLECTION':
+                    for article in component.get('articles', []):
+                        url = article.get('url', '')
+                        title = article.get('title', '')
+                        if url and title and url not in seen:
+                            seen.add(url)
                             articles.append({
                                 'title': title,
-                                'url': amp_url,
-                                'description': ''
+                                'url': url,
+                                'description': article.get('rubric', '') or article.get('description', '')
                             })
-        
-        self.log(f'✅ Found {len(articles)} articles')
-        return [('Articles', articles)]
+        except Exception as e:
+            self.log(f'Error in path 1: {e}')
+
+        # 如果方法 1 没找到，尝试其他路径
+        if not articles:
+            try:
+                # 路径 2: 直接查找文章列表
+                article_list = data.get('props', {}).get('pageProps', {}).get('articles', [])
+                if isinstance(article_list, list):
+                    for article in article_list:
+                        url = article.get('url', '')
+                        title = article.get('title', '') or article.get('headline', '')
+                        if url and title and url not in seen:
+                            seen.add(url)
+                            articles.append({
+                                'title': title,
+                                'url': url,
+                                'description': article.get('rubric', '') or article.get('description', '')
+                            })
+            except Exception as e:
+                self.log(f'Error in path 2: {e}')
+
+        # 如果还没找到，尝试查找所有包含 '/2026/' 的链接
+        if not articles:
+            try:
+                # 路径 3: 在 props.pageProps 中递归查找
+                page_props = data.get('props', {}).get('pageProps', {})
+                self._recursive_find_articles(page_props, articles, seen)
+            except Exception as e:
+                self.log(f'Error in path 3: {e}')
+
+        return articles
+
+    def _recursive_find_articles(self, obj, articles, seen):
+        """递归查找文章数据"""
+        if isinstance(obj, dict):
+            # 检查是否是文章对象
+            if 'url' in obj and 'title' in obj:
+                url = obj.get('url', '')
+                title = obj.get('title', '')
+                if url and title and url not in seen and '/2026/' in url:
+                    seen.add(url)
+                    articles.append({
+                        'title': title,
+                        'url': url,
+                        'description': obj.get('rubric', '') or obj.get('excerpt', '')
+                    })
+            # 递归遍历
+            for value in obj.values():
+                self._recursive_find_articles(value, articles, seen)
+        elif isinstance(obj, list):
+            for item in obj:
+                self._recursive_find_articles(item, articles, seen)
+
+    def _extract_from_html(self, soup):
+        """直接从 HTML 提取文章"""
+        articles = []
+        seen = set()
+
+        # 查找所有文章链接
+        for a in soup.find_all('a', href=True):
+            href = a.get('href', '')
+            # 匹配 Fortune 文章 URL 模式
+            if re.match(r'^/202[6-9]/\d{2}/\d{2}/[a-z0-9-]+/$', href):
+                title = a.get_text(strip=True)
+                if title and len(title) > 10:
+                    url = href
+                    if not url.startswith('http'):
+                        url = 'https://fortune.com' + url
+                    if url not in seen:
+                        seen.add(url)
+                        articles.append({
+                            'title': title,
+                            'url': url,
+                            'description': ''
+                        })
+
+        return articles
