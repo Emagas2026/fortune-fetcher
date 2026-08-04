@@ -23,7 +23,7 @@ class Fortune(BasicNewsRecipe):
     remove_attributes = ['style', 'height', 'width']
     remove_empty_feeds = True
 
-    # ===== 不要过度限制 keep_only_tags =====
+    # ===== 保留内容 =====
     keep_only_tags = [
         dict(name='article'),
         dict(name='h1'),
@@ -35,19 +35,23 @@ class Fortune(BasicNewsRecipe):
         dict(name='figure'),
         dict(name='figcaption'),
         dict(name='blockquote'),
+        dict(name='ul'),
+        dict(name='ol'),
+        dict(name='li'),
         classes('wp-block-paragraph'),
         dict(attrs={'data-cy': 'article-author-and-date'}),
         dict(attrs={'data-cy': 'feature-byline-publish-date'}),
         dict(attrs={'data-cy': 'article-eyebrow'}),
     ]
 
-    # ===== 只移除明确的广告和脚本 =====
+    # ===== 移除垃圾 =====
     remove_tags = [
         dict(name=['script', 'style', 'noscript', 'iframe', 'svg', 'path', 'template']),
         dict(attrs={'class': lambda x: x and any(
             keyword in x.lower() for keyword in 
-            ['ad-', 'promo-', 'social-', 'share-', 'sidebar', 'trending', 
-             'most-popular', 'recirc', 'newsletter', 'subscribe', 'pagination']
+            ['ad-', 'promo-', 'social-', 'share-', 'sidebar', 
+             'trending', 'most-popular', 'recirc', 'newsletter', 'subscribe',
+             'pagination', 'breadcrumb', 'banner', 'modal', 'cookie']
         )}),
         dict(attrs={'id': lambda x: x and any(
             keyword in x.lower() for keyword in 
@@ -83,6 +87,8 @@ class Fortune(BasicNewsRecipe):
         .author-role { color: #666; font-size: 0.9em; }
         .date { color: #888; font-size: 0.9em; }
         img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+        figure { margin: 1em 0; text-align: center; }
+        figcaption { font-size: 0.85em; color: #666; text-align: center; }
         p { margin: 0.8em 0; }
         blockquote { margin: 1em 2em; padding: 0.5em 1em; border-left: 3px solid #ccc; }
         .calibre_navbar { font-size: 0.85em; color: #666; padding: 10px 0; border-bottom: 1px solid #ddd; margin-bottom: 20px; }
@@ -99,7 +105,7 @@ class Fortune(BasicNewsRecipe):
         for ai in soup.findAll(name='amp-img'):
             ai.name = 'img'
 
-        # ===== 只删除明确的垃圾内容 =====
+        # ===== 删除垃圾内容 =====
         # 删除 "Most Popular" 模块
         for elem in soup.findAll(text=re.compile(r'Most Popular', re.IGNORECASE)):
             parent = elem.parent
@@ -112,7 +118,19 @@ class Fortune(BasicNewsRecipe):
             if parent:
                 parent.decompose()
         
-        # 删除数字 1, 2, 3
+        # 删除 "Recommended Video" 模块
+        for elem in soup.findAll(text=re.compile(r'Recommended Video', re.IGNORECASE)):
+            parent = elem.parent
+            if parent:
+                parent.decompose()
+        
+        # 删除 "Latest from the Magazine" 模块
+        for elem in soup.findAll(text=re.compile(r'Latest from the Magazine', re.IGNORECASE)):
+            parent = elem.parent
+            if parent:
+                parent.decompose()
+
+        # 删除数字 1, 2, 3（推荐阅读序号）
         for elem in soup.findAll(text=re.compile(r'^[123]$')):
             parent = elem.parent
             if parent:
@@ -124,11 +142,19 @@ class Fortune(BasicNewsRecipe):
             if parent:
                 parent.decompose()
 
-        # 删除 About the Author
+        # 删除 "About the Author"
         for elem in soup.findAll(text=re.compile(r'About the Author', re.IGNORECASE)):
             parent = elem.parent
             if parent:
                 parent.decompose()
+
+        # 删除推荐阅读链接列表
+        for div in soup.findAll('div', attrs={'data-recirculation-name': True}):
+            div.decompose()
+        for div in soup.findAll('div', attrs={'data-cy': 'article-related-recirc'}):
+            div.decompose()
+        for ul in soup.findAll('ul', attrs={'class': lambda x: x and 'feed-list' in x.lower()}):
+            ul.decompose()
 
         # ===== 只保留主图 =====
         images = soup.findAll('img')
@@ -241,7 +267,6 @@ class Fortune(BasicNewsRecipe):
                 data = json.loads(script_tag.string)
                 self.log('Found __NEXT_DATA__, parsing...')
                 
-                # 正确的数据路径
                 page_props = data.get('props', {}).get('pageProps', {})
                 content = page_props.get('content', {})
                 components = content.get('components', [])
@@ -254,7 +279,6 @@ class Fortune(BasicNewsRecipe):
                             if url and title:
                                 if not url.startswith('http'):
                                     url = 'https://fortune.com' + url
-                                # 只保留 2026 年的文章
                                 if '/2026/' in url:
                                     articles.append({
                                         'title': title,
@@ -264,14 +288,14 @@ class Fortune(BasicNewsRecipe):
                                     self.log(f'Found: {title}')
                 
                 if articles:
-                    self.log(f'✅ Found {len(articles)} articles from __NEXT_DATA__')
+                    self.log(f'✅ Found {len(articles)} articles')
                     return [('Articles', articles)]
                     
             except Exception as e:
-                self.log(f'Error parsing __NEXT_DATA__: {e}')
+                self.log(f'Error: {e}')
 
         # ===== 从 HTML 提取（备用） =====
-        self.log('Trying direct HTML parsing...')
+        self.log('Trying direct HTML...')
         for a in soup.find_all('a', href=True):
             href = a.get('href', '')
             if re.match(r'^/202[6-9]/\d{2}/\d{2}/[a-z0-9-]+/$', href):
@@ -288,7 +312,7 @@ class Fortune(BasicNewsRecipe):
             self.log(f'✅ Found {len(articles)} articles from HTML')
             return [('Articles', articles)]
 
-        self.log('❌ No articles found')
+        self.log('❌ No articles')
         return []
 
     def preprocess_raw_html(self, raw_html, url):
