@@ -1,0 +1,108 @@
+from calibre.web.feeds.recipes import BasicNewsRecipe
+
+
+def classes(classes):
+    q = frozenset(classes.split(' '))
+    return dict(attrs={'class': lambda x: x and frozenset(x.split()).intersection(q)})
+
+
+def prefix_classes(classes):
+    q = classes.split()
+
+    def test(x):
+        if x:
+            for cls in x.split():
+                for c in q:
+                    if cls.startswith(c):
+                        return True
+        return False
+
+    return dict(attrs={'class': test})
+
+
+class Fortune(BasicNewsRecipe):
+    title = 'Fortune Magazine'
+    __author__ = 'Rick Shang'
+
+    description = 'FORTUNE is a global business magazine that has been revered in its content and credibility since 1930. FORTUNE covers the entire field of business, including specific companies and business trends, prominent business leaders, and new ideas shaping the global marketplace.'
+    language = 'en'
+    category = 'news'
+    encoding = 'UTF-8'
+    
+    # 保留的内容
+    keep_only_tags = [
+        classes('amp-wp-title amp-wp-dek amp-header-meta amp-wp-article-featured-image amp-wp-article-content'),
+    ]
+
+    no_javascript = True
+    no_stylesheets = True
+    needs_subscription = 'optional'
+    
+    # 延迟设置，避免被限制
+    delay = 2
+    
+    # 去除广告和无关元素
+    remove_attributes = ['style', 'height', 'width']
+    remove_empty_feeds = True
+
+    def get_browser(self):
+        br = BasicNewsRecipe.get_browser(self)
+        # Fortune 不需要登录，移除登录逻辑
+        return br
+
+    def preprocess_html(self, soup, *a):
+        # 将 amp-img 转换为 img
+        for ai in soup.findAll(name='amp-img'):
+            ai.name = 'img'
+        
+        # 处理图片 URL
+        for img in soup.findAll('img', src=True):
+            if 'fortune.com' in img['src'] and 'cdn-cgi' not in img['src']:
+                img['src'] = img['src'].replace(
+                    'fortune.com/',
+                    'fortune.com/cdn-cgi/image/width=600,quality=80,format=auto/'
+                )
+        
+        return soup
+
+    def parse_index(self):
+        articles = []
+
+        # 获取最新杂志列表
+        soup = self.index_to_soup('https://fortune.com/section/magazine/')
+        articles = []
+
+        for li in soup.findAll('li', attrs={'class': lambda x: x and 'termArchiveContentList__item--' in x}):
+            a = li.find('a', href=True)
+            if not a:
+                continue
+            
+            url = a['href'].rstrip('/') + '/amp'
+            
+            # 提取标题
+            div = li.find(attrs={'class': lambda x: x and 'termArchiveContentListItem__title--' in x})
+            if not div:
+                continue
+                
+            title = self.tag_to_string(div)
+            if title.startswith('Magazine'):
+                title = title[len('Magazine'):]
+            title = title.strip()
+            
+            # 提取摘要
+            desc = ''
+            div = li.find(attrs={'class': lambda x: x and 'termArchiveContentListItem__excerpt--' in x})
+            if div is not None:
+                desc = self.tag_to_string(div)
+            
+            self.log(f'📄 {title}')
+            self.log(f'   URL: {url}')
+            
+            articles.append({
+                'title': title,
+                'url': url,
+                'description': desc
+            })
+        
+        self.log(f'✅ Found {len(articles)} articles')
+        return [('Articles', articles)]
