@@ -23,7 +23,7 @@ class Fortune(BasicNewsRecipe):
     remove_attributes = ['style', 'height', 'width']
     remove_empty_feeds = True
 
-    # ===== 保留文章核心内容 =====
+    # ===== 只保留文章主要内容 =====
     keep_only_tags = [
         dict(name='article'),
         dict(name='h1'),
@@ -35,26 +35,41 @@ class Fortune(BasicNewsRecipe):
         dict(name='figure'),
         dict(name='figcaption'),
         dict(name='blockquote'),
-        dict(attrs={'class': lambda x: x and 'wp-block-paragraph' in x}),
-        dict(attrs={'class': lambda x: x and 'article-content' in x}),
+        dict(name='ul'),
+        dict(name='ol'),
+        dict(name='li'),
+        classes('wp-block-paragraph'),
+        classes('article-content'),
+        dict(attrs={'data-cy': 'article-author-and-date'}),
+        dict(attrs={'data-cy': 'article-title'}),
+        dict(attrs={'data-cy': 'article-eyebrow'}),
+        dict(attrs={'data-cy': 'feature-byline-publish-date'}),
     ]
 
-    # ===== 移除垃圾内容（不要过度过滤） =====
+    # ===== 移除所有不需要的内容 =====
     remove_tags = [
         dict(name=['script', 'style', 'noscript', 'iframe', 'svg', 'path', 'template']),
-        # 只移除明确的广告和页脚
         dict(attrs={'class': lambda x: x and any(
             keyword in x.lower() for keyword in 
-            ['ad-', 'promo-', 'social-', 'share-', 'sidebar', 'nav', 
-             'trending', 'most-popular', 'recirc', 'newsletter', 'subscribe',
+            ['ad', 'promo', 'social', 'share', 'related', 'sidebar', 'nav', 'footer', 
+             'header', 'trending', 'most-popular', 'recirc', 'newsletter', 'subscribe',
              'pagination', 'breadcrumb', 'hero', 'banner', 'modal', 'cookie']
         )}),
         dict(attrs={'id': lambda x: x and any(
             keyword in x.lower() for keyword in 
-            ['ad', 'promo', 'social', 'share', 'sidebar', 'nav',
+            ['ad', 'promo', 'social', 'share', 'related', 'sidebar', 'nav', 'footer',
              'trending', 'popular', 'recirc']
         )}),
-        # 不要用 data-cy 过滤，因为会删除内容
+        dict(attrs={'data-cy': lambda x: x and any(
+            keyword in x.lower() for keyword in
+            ['ad', 'promo', 'social', 'share', 'related', 'sidebar', 'nav', 'footer',
+             'trending', 'popular', 'recirc', 'header', 'breadcrumb']
+        )}),
+        dict(name='div', attrs={'role': 'button'}),
+        dict(attrs={'data-empty': 'true'}),
+        dict(attrs={'aria-hidden': 'true'}),
+        dict(attrs={'hidden': ''}),
+        dict(name='hr'),
     ]
 
     recipe_specific_options = {
@@ -80,17 +95,37 @@ class Fortune(BasicNewsRecipe):
             margin: 0.5em 0; 
             color: #000;
         }
+        h2 { font-size: 1.4em; font-weight: bold; margin-top: 1em; }
         .article-eyebrow { 
             color: #8B0000; 
             font-weight: bold; 
             font-size: 0.85em; 
             text-transform: uppercase;
             letter-spacing: 0.05em;
+            margin-bottom: 0.3em;
         }
-        .byline { color: #444; font-size: 0.95em; font-style: italic; }
-        .author-role { color: #666; font-size: 0.9em; }
-        .date { color: #888; font-size: 0.9em; }
-        img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+        .byline { 
+            color: #444; 
+            font-size: 0.95em; 
+            font-style: italic;
+            margin: 0.3em 0;
+        }
+        .author-role { 
+            color: #666; 
+            font-size: 0.9em; 
+            margin: 0.2em 0;
+        }
+        .date { 
+            color: #888; 
+            font-size: 0.9em; 
+            margin: 0.2em 0 1em 0;
+        }
+        img { 
+            max-width: 100%; 
+            height: auto; 
+            display: block; 
+            margin: 1em auto;
+        }
         figure { margin: 1em 0; text-align: center; }
         figcaption { font-size: 0.85em; color: #666; text-align: center; }
         p { margin: 0.8em 0; }
@@ -109,6 +144,9 @@ class Fortune(BasicNewsRecipe):
             border-top: 1px solid #ddd; 
             margin-top: 20px;
         }
+        a { color: #0055A4; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .wp-block-paragraph { margin: 0.8em 0; }
     '''
 
     def get_browser(self):
@@ -120,7 +158,70 @@ class Fortune(BasicNewsRecipe):
         for ai in soup.findAll(name='amp-img'):
             ai.name = 'img'
 
-        # ===== 只保留主图 =====
+        # ============================================================
+        # 1. 删除所有垃圾内容（Trending, Most Popular, 推荐阅读等）
+        # ============================================================
+        
+        # 删除 "Most Popular" 模块
+        for elem in soup.findAll(text=re.compile(r'Most Popular', re.IGNORECASE)):
+            parent = elem.parent
+            if parent:
+                parent.decompose()
+        
+        # 删除 "Trending" 模块
+        for elem in soup.findAll(text=re.compile(r'Trending', re.IGNORECASE)):
+            parent = elem.parent
+            if parent:
+                parent.decompose()
+        
+        # 删除 "Recommended Video" 模块
+        for elem in soup.findAll(text=re.compile(r'Recommended Video', re.IGNORECASE)):
+            parent = elem.parent
+            if parent:
+                parent.decompose()
+        
+        # 删除 "Latest from the Magazine" 模块
+        for elem in soup.findAll(text=re.compile(r'Latest from the Magazine', re.IGNORECASE)):
+            parent = elem.parent
+            if parent:
+                parent.decompose()
+        
+        # 删除数字 1, 2, 3（推荐阅读序号）
+        for div in soup.findAll('div', attrs={'class': lambda x: x and 'flex' in x.lower()}):
+            text = div.get_text(strip=True)
+            if text in ['1', '2', '3'] or re.match(r'^[123]\s*$', text):
+                div.decompose()
+        
+        for span in soup.findAll('span', attrs={'class': lambda x: x and 'flex' in x.lower()}):
+            text = span.get_text(strip=True)
+            if text in ['1', '2', '3'] or re.match(r'^[123]\s*$', text):
+                span.decompose()
+        
+        # 删除页脚版权信息
+        for elem in soup.findAll(text=re.compile(r'© 2026 Fortune Media IP Limited|FORTUNE is a trademark|Terms of Use|Privacy Policy|Do Not Sell')):
+            parent = elem.parent
+            if parent:
+                parent.decompose()
+        
+        # 删除 "About the Author"
+        for elem in soup.findAll(text=re.compile(r'About the Author', re.IGNORECASE)):
+            parent = elem.parent
+            if parent:
+                parent.decompose()
+        
+        # 删除推荐阅读链接列表
+        for div in soup.findAll('div', attrs={'data-recirculation-name': True}):
+            div.decompose()
+        
+        for div in soup.findAll('div', attrs={'data-cy': 'article-related-recirc'}):
+            div.decompose()
+        
+        for div in soup.findAll('div', attrs={'id': lambda x: x and 'recirc' in x.lower()}):
+            div.decompose()
+
+        # ============================================================
+        # 2. 只保留主图，删除其他所有图片
+        # ============================================================
         images = soup.findAll('img')
         primary_img = None
         
@@ -136,7 +237,7 @@ class Fortune(BasicNewsRecipe):
         for img in images:
             img.decompose()
         
-        # 重新插入主图
+        # 如果有主图，压缩后重新插入
         if primary_img:
             src = primary_img.get('src', '') or primary_img.get('data-src', '')
             if src and 'fortune.com' in src:
@@ -155,27 +256,31 @@ class Fortune(BasicNewsRecipe):
             else:
                 soup.append(primary_img)
 
-        # ===== 提取元数据 =====
-        # 1. 领域
+        # ============================================================
+        # 3. 提取文章元数据（领域、作者、职位、日期）
+        # ============================================================
+        
+        # 3.1 提取领域（eyebrow）
         eyebrow = soup.find(attrs={'data-cy': 'article-eyebrow'})
         if eyebrow:
-            text = eyebrow.get_text(strip=True)
-            # 只取第一个链接或纯文本
-            first_link = eyebrow.find('a')
-            if first_link:
-                text = first_link.get_text(strip=True)
-            if text:
-                tag = soup.new_tag('div')
-                tag['class'] = 'article-eyebrow'
-                tag.string = text.upper()
-                h1 = soup.find('h1')
-                if h1:
-                    h1.insert_before(tag)
+            eyebrow_text = eyebrow.get_text(strip=True)
+            if eyebrow_text:
+                # 只取第一个链接或纯文本
+                first_link = eyebrow.find('a')
+                if first_link:
+                    eyebrow_text = first_link.get_text(strip=True)
+                if eyebrow_text:
+                    tag = soup.new_tag('div')
+                    tag['class'] = 'article-eyebrow'
+                    tag.string = eyebrow_text.upper()
+                    h1 = soup.find('h1')
+                    if h1:
+                        h1.insert_before(tag)
 
-        # 2. 作者和职位
+        # 3.2 提取作者和职位
         author_div = soup.find(attrs={'data-cy': 'article-author-and-date'})
         if author_div:
-            # 作者
+            # 提取作者
             for a in author_div.findAll('a', href=True):
                 if '/author/' in a.get('href', ''):
                     name = a.get_text(strip=True)
@@ -188,7 +293,7 @@ class Fortune(BasicNewsRecipe):
                             h1.insert_after(tag)
                         break
             
-            # 职位
+            # 提取职位
             for span in author_div.findAll('span'):
                 text = span.get_text(strip=True)
                 if text and not text.startswith('By') and len(text) < 50:
@@ -201,14 +306,14 @@ class Fortune(BasicNewsRecipe):
                             h1.insert_after(tag)
                         break
 
-        # 3. 日期
+        # 3.3 提取日期
         date_elem = soup.find(attrs={'data-cy': 'feature-byline-publish-date'})
         if date_elem:
-            text = date_elem.get_text(strip=True)
-            if text:
+            date_text = date_elem.get_text(strip=True)
+            if date_text:
                 tag = soup.new_tag('div')
                 tag['class'] = 'date'
-                tag.string = text
+                tag.string = date_text
                 byline = soup.find('div', class_='byline')
                 if byline:
                     byline.insert_after(tag)
@@ -217,17 +322,11 @@ class Fortune(BasicNewsRecipe):
                     if h1:
                         h1.insert_after(tag)
 
-        # ===== 删除原始作者/日期元素（避免重复） =====
+        # 3.4 删除原始作者/日期元素（避免重复）
         if author_div:
             author_div.decompose()
         if date_elem:
             date_elem.decompose()
-
-        # ===== 删除页脚版权 =====
-        for elem in soup.findAll(text=re.compile(r'© 2026 Fortune Media IP Limited|FORTUNE is a trademark|Terms of Use|Privacy Policy')):
-            parent = elem.parent
-            if parent:
-                parent.decompose()
 
         return soup
 
@@ -333,6 +432,7 @@ class Fortune(BasicNewsRecipe):
                 self._recursive_find_articles(item, articles, seen)
 
     def preprocess_raw_html(self, raw_html, url):
+        # 清理无效的命名空间
         raw_html = raw_html.replace('xmlns:xmlns="http://www.w3.org/2000/svg"', '')
         raw_html = raw_html.replace('xmlns:xmlns="http://www.w3.org/1999/xhtml"', '')
         return BasicNewsRecipe.preprocess_raw_html(self, raw_html, url)
