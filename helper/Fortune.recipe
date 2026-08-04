@@ -41,11 +41,11 @@ class Fortune(BasicNewsRecipe):
 
     # ===== 文章过滤：只保留主要内容 =====
     keep_only_tags = [
-        dict(name='article'),  # 只保留 article 标签内的内容
-        classes('article-content'),  # 文章正文
-        classes('wp-block-paragraph'),  # 段落
-        dict(name='h1'),  # 标题
-        dict(name='h2'),  # 副标题
+        dict(name='article'),
+        classes('article-content'),
+        classes('wp-block-paragraph'),
+        dict(name='h1'),
+        dict(name='h2'),
         dict(name='h3'),
         dict(name='h4'),
         dict(name='p'),
@@ -53,8 +53,8 @@ class Fortune(BasicNewsRecipe):
         dict(name='ul'),
         dict(name='ol'),
         dict(name='li'),
-        dict(name='figure'),
-        dict(name='figcaption'),
+        dict(name='figure'),      # ← 保留图片容器
+        dict(name='figcaption'),  # ← 保留图片说明
         dict(name='img'),
     ]
 
@@ -83,6 +83,7 @@ class Fortune(BasicNewsRecipe):
         dict(attrs={'data-empty': 'true'}),
         dict(attrs={'aria-hidden': 'true'}),
         dict(attrs={'hidden': ''}),
+        dict(attrs={'style': lambda x: x and 'display:none' in x.lower()}),
     ]
 
     # ===== 添加 recipe_specific_options =====
@@ -126,7 +127,23 @@ class Fortune(BasicNewsRecipe):
             border-left: 4px solid #8B0000;
             margin: 1em 0;
         }
-        img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+        img { 
+            max-width: 100%; 
+            height: auto; 
+            display: block; 
+            margin: 1em auto;
+            border-radius: 4px;
+        }
+        figure { 
+            margin: 1.5em 0; 
+            text-align: center; 
+        }
+        figcaption { 
+            font-size: 0.85em; 
+            color: #666; 
+            text-align: center; 
+            margin-top: 0.5em;
+        }
         p { margin: 0.8em 0; }
         blockquote { margin: 1em 2em; padding: 0.5em 1em; border-left: 3px solid #ccc; color: #444; }
         .article-item { border-bottom: 1px solid #e0e0e0; padding: 1em 0; }
@@ -146,22 +163,50 @@ class Fortune(BasicNewsRecipe):
         for ai in soup.findAll(name='amp-img'):
             ai.name = 'img'
 
-        # 处理图片 URL
-        for img in soup.findAll('img', src=True):
-            src = img['src']
-            if src.startswith('http') and 'fortune.com' in src:
-                if 'cdn-cgi' not in src:
+        # ===== 优化图片处理 =====
+        for img in soup.findAll('img'):
+            src = img.get('src', '')
+            data_src = img.get('data-src', '')
+            data_srcset = img.get('data-srcset', '')
+            
+            # 优先使用 data-src（懒加载）
+            if data_src and 'fortune.com' in data_src:
+                # 清理 URL：移除查询参数，获取原始图片
+                clean_src = data_src.split('?')[0]
+                if clean_src.endswith(('.jpg', '.png', '.webp', '.gif')):
+                    img['src'] = clean_src
+                    continue
+            
+            # 使用 data-srcset
+            if data_srcset:
+                # 取第一个 URL
+                first_url = data_srcset.split(',')[0].split()[0]
+                if 'fortune.com' in first_url:
+                    clean_src = first_url.split('?')[0]
+                    if clean_src.endswith(('.jpg', '.png', '.webp', '.gif')):
+                        img['src'] = clean_src
+                        continue
+            
+            # 处理普通 src
+            if src and 'fortune.com' in src:
+                clean_src = src.split('?')[0]
+                if clean_src.endswith(('.jpg', '.png', '.webp', '.gif')):
+                    img['src'] = clean_src
+                elif 'cdn-cgi' not in src:
                     img['src'] = src.replace(
                         'fortune.com/',
-                        'fortune.com/cdn-cgi/image/width=600,quality=80,format=auto/'
+                        'fortune.com/cdn-cgi/image/width=800,quality=80,format=auto/'
                     )
 
-        # ===== 修复命名空间错误 =====
-        # 移除 xmlns:xmlns 属性
+            # 移除图片上的无用属性
+            for attr in ['data-src', 'data-srcset', 'data-nimg', 'sizes', 'srcset']:
+                if img.has_attr(attr):
+                    del img[attr]
+
+        # 修复命名空间错误
         for tag in soup.findAll(attrs={'xmlns:xmlns': True}):
             del tag['xmlns:xmlns']
 
-        # 修复错误的命名空间声明
         for tag in soup.findAll():
             attrs_to_remove = []
             for attr in tag.attrs:
