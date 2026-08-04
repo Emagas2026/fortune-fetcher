@@ -8,25 +8,10 @@ def classes(classes):
     return dict(attrs={'class': lambda x: x and frozenset(x.split()).intersection(q)})
 
 
-def prefix_classes(classes):
-    q = classes.split()
-
-    def test(x):
-        if x:
-            for cls in x.split():
-                for c in q:
-                    if cls.startswith(c):
-                        return True
-        return False
-
-    return dict(attrs={'class': test})
-
-
 class Fortune(BasicNewsRecipe):
     title = 'Fortune Magazine'
     __author__ = 'Rick Shang'
-
-    description = 'FORTUNE is a global business magazine that has been revered in its content and credibility since 1930.'
+    description = 'FORTUNE is a global business magazine.'
     language = 'en'
     category = 'news'
     encoding = 'UTF-8'
@@ -34,38 +19,41 @@ class Fortune(BasicNewsRecipe):
     no_javascript = True
     no_stylesheets = True
     needs_subscription = 'optional'
-
     delay = 2
     remove_attributes = ['style', 'height', 'width']
     remove_empty_feeds = True
 
-    # ===== 文章过滤：只保留主要内容 =====
+    # ===== 只保留文章主要内容 =====
     keep_only_tags = [
         dict(name='article'),
-        classes('article-content'),
-        classes('wp-block-paragraph'),
-        dict(name='h1'),
-        dict(name='h2'),
+        dict(name='h1'),           # 标题
+        dict(name='h2'),           # 副标题
         dict(name='h3'),
         dict(name='h4'),
-        dict(name='p'),
+        dict(name='p'),            # 段落
+        dict(name='img'),          # 图片
+        dict(name='figure'),       # 图片容器
+        dict(name='figcaption'),   # 图片说明
         dict(name='blockquote'),
         dict(name='ul'),
         dict(name='ol'),
         dict(name='li'),
-        dict(name='figure'),      # ← 保留图片容器
-        dict(name='figcaption'),  # ← 保留图片说明
-        dict(name='img'),
+        classes('wp-block-paragraph'),
+        classes('article-content'),
+        # 保留作者和日期信息
+        dict(attrs={'data-cy': 'article-author-and-date'}),
+        dict(attrs={'data-cy': 'article-title'}),
+        dict(attrs={'data-cy': 'article-eyebrow'}),
     ]
 
     # ===== 移除所有不需要的内容 =====
     remove_tags = [
-        dict(name=['script', 'style', 'noscript', 'iframe', 'svg', 'path']),
+        dict(name=['script', 'style', 'noscript', 'iframe', 'svg', 'path', 'template']),
         dict(attrs={'class': lambda x: x and any(
             keyword in x.lower() for keyword in 
             ['ad', 'promo', 'social', 'share', 'related', 'sidebar', 'nav', 'footer', 
              'header', 'trending', 'most-popular', 'recirc', 'newsletter', 'subscribe',
-             'pagination', 'breadcrumb', 'hero', 'banner', 'modal']
+             'pagination', 'breadcrumb', 'hero', 'banner', 'modal', 'cookie', 'trending']
         )}),
         dict(attrs={'id': lambda x: x and any(
             keyword in x.lower() for keyword in 
@@ -77,20 +65,16 @@ class Fortune(BasicNewsRecipe):
             ['ad', 'promo', 'social', 'share', 'related', 'sidebar', 'nav', 'footer',
              'trending', 'popular', 'recirc', 'header', 'breadcrumb']
         )}),
-        dict(name='template'),
-        dict(name='hr'),
         dict(name='div', attrs={'role': 'button'}),
         dict(attrs={'data-empty': 'true'}),
         dict(attrs={'aria-hidden': 'true'}),
         dict(attrs={'hidden': ''}),
-        dict(attrs={'style': lambda x: x and 'display:none' in x.lower()}),
+        dict(name='hr'),
     ]
 
-    # ===== 添加 recipe_specific_options =====
     recipe_specific_options = {
         'issue_url': {
             'short': 'Custom magazine archive URL',
-            'long': 'Use a specific URL for the magazine archive page',
             'default': '',
         },
     }
@@ -108,49 +92,48 @@ class Fortune(BasicNewsRecipe):
         h1 { 
             font-size: 1.8em; 
             font-weight: bold; 
-            margin-top: 0.5em; 
-            margin-bottom: 0.5em;
+            margin: 0.5em 0; 
             color: #000;
         }
         h2 { font-size: 1.4em; font-weight: bold; margin-top: 1em; }
-        h3 { font-size: 1.2em; font-weight: bold; }
-        h4 { font-size: 1.1em; font-weight: bold; }
-        .article-title { font-size: 1.6em; font-weight: bold; color: #1a1a1a; }
+        .article-eyebrow { 
+            color: #8B0000; 
+            font-weight: bold; 
+            font-size: 0.9em; 
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .article-title { font-size: 1.6em; font-weight: bold; }
         .article-meta { color: #666; font-size: 0.9em; margin-bottom: 1em; }
         .author { color: #444; font-size: 0.95em; font-style: italic; }
+        .author-role { color: #666; font-size: 0.9em; }
         .date { color: #888; font-size: 0.9em; }
-        .summary { 
-            font-style: italic; 
-            color: #333; 
-            background: #f5f5f5; 
-            padding: 10px 15px; 
-            border-left: 4px solid #8B0000;
-            margin: 1em 0;
-        }
         img { 
             max-width: 100%; 
             height: auto; 
             display: block; 
             margin: 1em auto;
-            border-radius: 4px;
         }
-        figure { 
-            margin: 1.5em 0; 
-            text-align: center; 
-        }
-        figcaption { 
+        figure { margin: 1em 0; text-align: center; }
+        figcaption { font-size: 0.85em; color: #666; text-align: center; }
+        p { margin: 0.8em 0; }
+        blockquote { margin: 1em 2em; padding: 0.5em 1em; border-left: 3px solid #ccc; }
+        .calibre_navbar { 
             font-size: 0.85em; 
             color: #666; 
-            text-align: center; 
-            margin-top: 0.5em;
+            padding: 10px 0; 
+            border-bottom: 1px solid #ddd; 
+            margin-bottom: 20px;
         }
-        p { margin: 0.8em 0; }
-        blockquote { margin: 1em 2em; padding: 0.5em 1em; border-left: 3px solid #ccc; color: #444; }
-        .article-item { border-bottom: 1px solid #e0e0e0; padding: 1em 0; }
-        .article-item:last-child { border-bottom: none; }
+        .calibre_navbar1 { 
+            font-size: 0.85em; 
+            color: #666; 
+            padding: 10px 0; 
+            border-top: 1px solid #ddd; 
+            margin-top: 20px;
+        }
         a { color: #0055A4; text-decoration: none; }
         a:hover { text-decoration: underline; }
-        .calibre6 { display: none; }
         .wp-block-paragraph { margin: 0.8em 0; }
     '''
 
@@ -163,62 +146,112 @@ class Fortune(BasicNewsRecipe):
         for ai in soup.findAll(name='amp-img'):
             ai.name = 'img'
 
-        # ===== 优化图片处理 =====
+        # ===== 只保留主图 =====
+        # 查找所有图片
+        images = soup.findAll('img')
+        
+        # 查找主图（通常是第一个图片，或者带有 primary-image id）
+        primary_img = None
+        for img in images:
+            # 检查是否是主图
+            if img.get('id') == 'primary-image':
+                primary_img = img
+                break
+            # 检查 data-content-placement
+            if img.get('data-content-placement') == 'primary_image':
+                primary_img = img
+                break
+        
+        # 如果找到主图，保留它，移除其他图片
+        if primary_img:
+            # 移除所有图片
+            for img in images:
+                img.decompose()
+            # 重新插入主图
+            soup.append(primary_img)
+        else:
+            # 如果没找到主图，保留第一张图片，移除其他
+            if images:
+                first_img = images[0]
+                for img in images:
+                    img.decompose()
+                soup.append(first_img)
+
+        # ===== 图片压缩 =====
         for img in soup.findAll('img'):
             src = img.get('src', '')
             data_src = img.get('data-src', '')
-            data_srcset = img.get('data-srcset', '')
             
-            # 优先使用 data-src（懒加载）
-            if data_src and 'fortune.com' in data_src:
-                # 清理 URL：移除查询参数，获取原始图片
-                clean_src = data_src.split('?')[0]
+            # 优先使用 data-src
+            img_src = data_src or src
+            if img_src and 'fortune.com' in img_src:
+                clean_src = img_src.split('?')[0]
                 if clean_src.endswith(('.jpg', '.png', '.webp', '.gif')):
-                    img['src'] = clean_src
-                    continue
-            
-            # 使用 data-srcset
-            if data_srcset:
-                # 取第一个 URL
-                first_url = data_srcset.split(',')[0].split()[0]
-                if 'fortune.com' in first_url:
-                    clean_src = first_url.split('?')[0]
-                    if clean_src.endswith(('.jpg', '.png', '.webp', '.gif')):
-                        img['src'] = clean_src
-                        continue
-            
-            # 处理普通 src
-            if src and 'fortune.com' in src:
-                clean_src = src.split('?')[0]
-                if clean_src.endswith(('.jpg', '.png', '.webp', '.gif')):
-                    img['src'] = clean_src
-                elif 'cdn-cgi' not in src:
-                    img['src'] = src.replace(
+                    img['src'] = clean_src.replace(
                         'fortune.com/',
-                        'fortune.com/cdn-cgi/image/width=800,quality=80,format=auto/'
+                        'fortune.com/cdn-cgi/image/width=400,quality=70,format=auto/'
+                    )
+                elif 'cdn-cgi' not in img_src:
+                    img['src'] = img_src.replace(
+                        'fortune.com/',
+                        'fortune.com/cdn-cgi/image/width=400,quality=70,format=auto/'
                     )
 
-            # 移除图片上的无用属性
+            # 移除无用属性
             for attr in ['data-src', 'data-srcset', 'data-nimg', 'sizes', 'srcset']:
                 if img.has_attr(attr):
                     del img[attr]
 
-        # 修复命名空间错误
-        for tag in soup.findAll(attrs={'xmlns:xmlns': True}):
-            del tag['xmlns:xmlns']
+        # ===== 提取文章元数据 =====
+        # 提取领域（eyebrow）
+        eyebrow = soup.find(attrs={'data-cy': 'article-eyebrow'})
+        if eyebrow:
+            # 提取文本
+            eyebrow_text = eyebrow.get_text(strip=True)
+            if eyebrow_text:
+                # 创建领域标签
+                eyebrow_tag = soup.new_tag('div')
+                eyebrow_tag['class'] = 'article-eyebrow'
+                eyebrow_tag.string = eyebrow_text.upper()
+                # 插入到标题前面
+                title_tag = soup.find('h1')
+                if title_tag:
+                    title_tag.insert_before(eyebrow_tag)
 
-        for tag in soup.findAll():
-            attrs_to_remove = []
-            for attr in tag.attrs:
-                if attr.startswith('xmlns:xmlns'):
-                    attrs_to_remove.append(attr)
-            for attr in attrs_to_remove:
-                del tag[attr]
+        # 提取作者信息
+        author_div = soup.find(attrs={'data-cy': 'article-author-and-date'})
+        if author_div:
+            # 提取作者
+            author_name = None
+            for a in author_div.findAll('a', href=True):
+                if '/author/' in a.get('href', ''):
+                    author_name = a.get_text(strip=True)
+                    break
+            
+            # 提取职位
+            role = None
+            for span in author_div.findAll('span'):
+                text = span.get_text(strip=True)
+                if text and not text.startswith('By') and len(text) < 30:
+                    role = text
+                    break
+            
+            # 提取日期
+            date_elem = soup.find(attrs={'data-cy': 'feature-byline-publish-date'})
+            if date_elem:
+                date_text = date_elem.get_text(strip=True)
+                if date_text:
+                    date_tag = soup.new_tag('div')
+                    date_tag['class'] = 'date'
+                    date_tag.string = date_text
+                    # 插入到标题后面
+                    title_tag = soup.find('h1')
+                    if title_tag:
+                        title_tag.insert_after(date_tag)
 
         return soup
 
     def parse_index(self):
-        # ===== 获取自定义 URL =====
         issue_url = self.recipe_specific_options.get('issue_url', '')
         if issue_url:
             source_url = issue_url
@@ -228,11 +261,10 @@ class Fortune(BasicNewsRecipe):
             self.log('Using default URL: https://fortune.com/magazine/')
 
         soup = self.index_to_soup(source_url)
-
-        # ===== 从 __NEXT_DATA__ 提取 =====
         articles = []
-        script_tag = soup.find('script', id='__NEXT_DATA__')
 
+        # 从 __NEXT_DATA__ 提取
+        script_tag = soup.find('script', id='__NEXT_DATA__')
         if script_tag:
             try:
                 data = json.loads(script_tag.string)
@@ -240,7 +272,6 @@ class Fortune(BasicNewsRecipe):
                 articles = self._extract_from_next_data(data)
                 if articles:
                     self.log(f'✅ Found {len(articles)} articles from __NEXT_DATA__')
-                    # 去重
                     seen = set()
                     unique_articles = []
                     for a in articles:
@@ -251,9 +282,19 @@ class Fortune(BasicNewsRecipe):
             except Exception as e:
                 self.log(f'Error parsing __NEXT_DATA__: {e}')
 
-        # ===== 从 HTML 提取 =====
+        # 从 HTML 提取
         self.log('Trying direct HTML parsing...')
-        articles = self._extract_from_html(soup)
+        for a in soup.find_all('a', href=True):
+            href = a.get('href', '')
+            if re.match(r'^/202[6-9]/\d{2}/\d{2}/[a-z0-9-]+/$', href):
+                title = a.get_text(strip=True)
+                if title and len(title) > 10:
+                    url = href if href.startswith('http') else f'https://fortune.com{href}'
+                    articles.append({
+                        'title': title,
+                        'url': url,
+                        'description': ''
+                    })
 
         if articles:
             self.log(f'✅ Found {len(articles)} articles from HTML')
@@ -263,12 +304,10 @@ class Fortune(BasicNewsRecipe):
         return []
 
     def _extract_from_next_data(self, data):
-        """从 __NEXT_DATA__ JSON 中提取文章"""
         articles = []
         seen = set()
 
         try:
-            # 提取页面内容中的文章
             components = data.get('props', {}).get('pageProps', {}).get('content', {}).get('components', [])
             for component in components:
                 if component.get('type') == 'COLLECTION':
@@ -276,8 +315,7 @@ class Fortune(BasicNewsRecipe):
                         url = article.get('url', '')
                         title = article.get('title', '') or article.get('headline', '')
                         if url and title and url not in seen:
-                            # 只保留 2026 年的文章（过滤掉其他内容）
-                            if '/2026/' in url or '2026' in url:
+                            if '/2026/' in url:
                                 seen.add(url)
                                 articles.append({
                                     'title': title,
@@ -287,7 +325,6 @@ class Fortune(BasicNewsRecipe):
         except Exception as e:
             self.log(f'Error in component extraction: {e}')
 
-        # 如果没找到，尝试递归搜索
         if not articles:
             try:
                 page_props = data.get('props', {}).get('pageProps', {})
@@ -298,9 +335,7 @@ class Fortune(BasicNewsRecipe):
         return articles
 
     def _recursive_find_articles(self, obj, articles, seen):
-        """递归查找文章数据"""
         if isinstance(obj, dict):
-            # 检查是否是文章对象
             if 'url' in obj and ('title' in obj or 'headline' in obj):
                 url = obj.get('url', '')
                 title = obj.get('title', '') or obj.get('headline', '')
@@ -311,41 +346,14 @@ class Fortune(BasicNewsRecipe):
                         'url': url,
                         'description': obj.get('rubric', '') or obj.get('excerpt', '')
                     })
-            # 递归遍历
             for value in obj.values():
                 self._recursive_find_articles(value, articles, seen)
         elif isinstance(obj, list):
             for item in obj:
                 self._recursive_find_articles(item, articles, seen)
 
-    def _extract_from_html(self, soup):
-        """直接从 HTML 提取文章"""
-        articles = []
-        seen = set()
-
-        for a in soup.find_all('a', href=True):
-            href = a.get('href', '')
-            if re.match(r'^/202[6-9]/\d{2}/\d{2}/[a-z0-9-]+/$', href):
-                title = a.get_text(strip=True)
-                if title and len(title) > 10:
-                    url = href
-                    if not url.startswith('http'):
-                        url = 'https://fortune.com' + url
-                    if url not in seen:
-                        seen.add(url)
-                        articles.append({
-                            'title': title,
-                            'url': url,
-                            'description': ''
-                        })
-
-        return articles
-
     def preprocess_raw_html(self, raw_html, url):
-        """预处理文章 HTML"""
         # 清理无效的命名空间
         raw_html = raw_html.replace('xmlns:xmlns="http://www.w3.org/2000/svg"', '')
         raw_html = raw_html.replace('xmlns:xmlns="http://www.w3.org/1999/xhtml"', '')
-        
-        # 使用父类方法处理
         return BasicNewsRecipe.preprocess_raw_html(self, raw_html, url)
