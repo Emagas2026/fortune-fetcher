@@ -39,6 +39,52 @@ class Fortune(BasicNewsRecipe):
     remove_attributes = ['style', 'height', 'width']
     remove_empty_feeds = True
 
+    # ===== 文章过滤：只保留主要内容 =====
+    keep_only_tags = [
+        dict(name='article'),  # 只保留 article 标签内的内容
+        classes('article-content'),  # 文章正文
+        classes('wp-block-paragraph'),  # 段落
+        dict(name='h1'),  # 标题
+        dict(name='h2'),  # 副标题
+        dict(name='h3'),
+        dict(name='h4'),
+        dict(name='p'),
+        dict(name='blockquote'),
+        dict(name='ul'),
+        dict(name='ol'),
+        dict(name='li'),
+        dict(name='figure'),
+        dict(name='figcaption'),
+        dict(name='img'),
+    ]
+
+    # ===== 移除所有不需要的内容 =====
+    remove_tags = [
+        dict(name=['script', 'style', 'noscript', 'iframe', 'svg', 'path']),
+        dict(attrs={'class': lambda x: x and any(
+            keyword in x.lower() for keyword in 
+            ['ad', 'promo', 'social', 'share', 'related', 'sidebar', 'nav', 'footer', 
+             'header', 'trending', 'most-popular', 'recirc', 'newsletter', 'subscribe',
+             'pagination', 'breadcrumb', 'hero', 'banner', 'modal']
+        )}),
+        dict(attrs={'id': lambda x: x and any(
+            keyword in x.lower() for keyword in 
+            ['ad', 'promo', 'social', 'share', 'related', 'sidebar', 'nav', 'footer',
+             'trending', 'popular', 'recirc']
+        )}),
+        dict(attrs={'data-cy': lambda x: x and any(
+            keyword in x.lower() for keyword in
+            ['ad', 'promo', 'social', 'share', 'related', 'sidebar', 'nav', 'footer',
+             'trending', 'popular', 'recirc', 'header', 'breadcrumb']
+        )}),
+        dict(name='template'),
+        dict(name='hr'),
+        dict(name='div', attrs={'role': 'button'}),
+        dict(attrs={'data-empty': 'true'}),
+        dict(attrs={'aria-hidden': 'true'}),
+        dict(attrs={'hidden': ''}),
+    ]
+
     # ===== 添加 recipe_specific_options =====
     recipe_specific_options = {
         'issue_url': {
@@ -49,24 +95,46 @@ class Fortune(BasicNewsRecipe):
     }
 
     extra_css = '''
-        img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
-        h1 { font-size: 1.8em; font-weight: bold; }
+        body { 
+            font-family: Georgia, "Times New Roman", serif; 
+            font-size: 14px; 
+            line-height: 1.6; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px;
+            color: #222;
+        }
+        h1 { 
+            font-size: 1.8em; 
+            font-weight: bold; 
+            margin-top: 0.5em; 
+            margin-bottom: 0.5em;
+            color: #000;
+        }
         h2 { font-size: 1.4em; font-weight: bold; margin-top: 1em; }
-        h4 { font-size: 1.2em; font-weight: bold; }
-        .article-title { font-size: 1.2em; font-weight: bold; }
-        .article-meta { color: #666; font-size: 0.9em; }
-        .article-summary { color: #444; font-size: 0.95em; margin: 0.5em 0; }
+        h3 { font-size: 1.2em; font-weight: bold; }
+        h4 { font-size: 1.1em; font-weight: bold; }
+        .article-title { font-size: 1.6em; font-weight: bold; color: #1a1a1a; }
+        .article-meta { color: #666; font-size: 0.9em; margin-bottom: 1em; }
+        .author { color: #444; font-size: 0.95em; font-style: italic; }
+        .date { color: #888; font-size: 0.9em; }
+        .summary { 
+            font-style: italic; 
+            color: #333; 
+            background: #f5f5f5; 
+            padding: 10px 15px; 
+            border-left: 4px solid #8B0000;
+            margin: 1em 0;
+        }
+        img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+        p { margin: 0.8em 0; }
+        blockquote { margin: 1em 2em; padding: 0.5em 1em; border-left: 3px solid #ccc; color: #444; }
         .article-item { border-bottom: 1px solid #e0e0e0; padding: 1em 0; }
         .article-item:last-child { border-bottom: none; }
-        blockquote { margin: 1em 2em; color: #404040; }
-        .section-header { 
-            font-size: 1.6em; 
-            font-weight: bold; 
-            color: #8B0000; 
-            border-bottom: 2px solid #8B0000;
-            padding-bottom: 5px;
-            margin-top: 1.5em;
-        }
+        a { color: #0055A4; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .calibre6 { display: none; }
+        .wp-block-paragraph { margin: 0.8em 0; }
     '''
 
     def get_browser(self):
@@ -80,29 +148,43 @@ class Fortune(BasicNewsRecipe):
 
         # 处理图片 URL
         for img in soup.findAll('img', src=True):
-            if 'fortune.com' in img['src'] and 'cdn-cgi' not in img['src']:
-                img['src'] = img['src'].replace(
-                    'fortune.com/',
-                    'fortune.com/cdn-cgi/image/width=600,quality=80,format=auto/'
-                )
+            src = img['src']
+            if src.startswith('http') and 'fortune.com' in src:
+                if 'cdn-cgi' not in src:
+                    img['src'] = src.replace(
+                        'fortune.com/',
+                        'fortune.com/cdn-cgi/image/width=600,quality=80,format=auto/'
+                    )
+
+        # ===== 修复命名空间错误 =====
+        # 移除 xmlns:xmlns 属性
+        for tag in soup.findAll(attrs={'xmlns:xmlns': True}):
+            del tag['xmlns:xmlns']
+
+        # 修复错误的命名空间声明
+        for tag in soup.findAll():
+            attrs_to_remove = []
+            for attr in tag.attrs:
+                if attr.startswith('xmlns:xmlns'):
+                    attrs_to_remove.append(attr)
+            for attr in attrs_to_remove:
+                del tag[attr]
 
         return soup
 
     def parse_index(self):
-        # ===== 获取自定义 URL，如果没有则使用默认 =====
+        # ===== 获取自定义 URL =====
         issue_url = self.recipe_specific_options.get('issue_url', '')
         if issue_url:
             source_url = issue_url
             self.log(f'Using custom URL: {source_url}')
         else:
-            # 默认获取最新一期
             source_url = 'https://fortune.com/magazine/'
             self.log('Using default URL: https://fortune.com/magazine/')
 
-        # 获取页面
         soup = self.index_to_soup(source_url)
 
-        # ===== 方法 1: 从 __NEXT_DATA__ 提取 =====
+        # ===== 从 __NEXT_DATA__ 提取 =====
         articles = []
         script_tag = soup.find('script', id='__NEXT_DATA__')
 
@@ -110,16 +192,21 @@ class Fortune(BasicNewsRecipe):
             try:
                 data = json.loads(script_tag.string)
                 self.log('Found __NEXT_DATA__, parsing...')
-
-                # 提取文章列表
                 articles = self._extract_from_next_data(data)
                 if articles:
                     self.log(f'✅ Found {len(articles)} articles from __NEXT_DATA__')
-                    return [('Articles', articles)]
+                    # 去重
+                    seen = set()
+                    unique_articles = []
+                    for a in articles:
+                        if a['url'] not in seen:
+                            seen.add(a['url'])
+                            unique_articles.append(a)
+                    return [('Articles', unique_articles)]
             except Exception as e:
                 self.log(f'Error parsing __NEXT_DATA__: {e}')
 
-        # ===== 方法 2: 从 HTML 直接提取 =====
+        # ===== 从 HTML 提取 =====
         self.log('Trying direct HTML parsing...')
         articles = self._extract_from_html(soup)
 
@@ -135,53 +222,33 @@ class Fortune(BasicNewsRecipe):
         articles = []
         seen = set()
 
-        # 尝试不同的数据路径
         try:
-            # 路径 1: props.pageProps.content.components
+            # 提取页面内容中的文章
             components = data.get('props', {}).get('pageProps', {}).get('content', {}).get('components', [])
             for component in components:
-                # 查找文章卡片
                 if component.get('type') == 'COLLECTION':
                     for article in component.get('articles', []):
                         url = article.get('url', '')
-                        title = article.get('title', '')
-                        if url and title and url not in seen:
-                            seen.add(url)
-                            articles.append({
-                                'title': title,
-                                'url': url,
-                                'description': article.get('rubric', '') or article.get('description', '')
-                            })
-        except Exception as e:
-            self.log(f'Error in path 1: {e}')
-
-        # 如果方法 1 没找到，尝试其他路径
-        if not articles:
-            try:
-                # 路径 2: 直接查找文章列表
-                article_list = data.get('props', {}).get('pageProps', {}).get('articles', [])
-                if isinstance(article_list, list):
-                    for article in article_list:
-                        url = article.get('url', '')
                         title = article.get('title', '') or article.get('headline', '')
                         if url and title and url not in seen:
-                            seen.add(url)
-                            articles.append({
-                                'title': title,
-                                'url': url,
-                                'description': article.get('rubric', '') or article.get('description', '')
-                            })
-            except Exception as e:
-                self.log(f'Error in path 2: {e}')
+                            # 只保留 2026 年的文章（过滤掉其他内容）
+                            if '/2026/' in url or '2026' in url:
+                                seen.add(url)
+                                articles.append({
+                                    'title': title,
+                                    'url': url,
+                                    'description': article.get('rubric', '') or article.get('description', '')
+                                })
+        except Exception as e:
+            self.log(f'Error in component extraction: {e}')
 
-        # 如果还没找到，尝试查找所有包含 '/2026/' 的链接
+        # 如果没找到，尝试递归搜索
         if not articles:
             try:
-                # 路径 3: 在 props.pageProps 中递归查找
                 page_props = data.get('props', {}).get('pageProps', {})
                 self._recursive_find_articles(page_props, articles, seen)
             except Exception as e:
-                self.log(f'Error in path 3: {e}')
+                self.log(f'Error in recursive search: {e}')
 
         return articles
 
@@ -189,9 +256,9 @@ class Fortune(BasicNewsRecipe):
         """递归查找文章数据"""
         if isinstance(obj, dict):
             # 检查是否是文章对象
-            if 'url' in obj and 'title' in obj:
+            if 'url' in obj and ('title' in obj or 'headline' in obj):
                 url = obj.get('url', '')
-                title = obj.get('title', '')
+                title = obj.get('title', '') or obj.get('headline', '')
                 if url and title and url not in seen and '/2026/' in url:
                     seen.add(url)
                     articles.append({
@@ -211,10 +278,8 @@ class Fortune(BasicNewsRecipe):
         articles = []
         seen = set()
 
-        # 查找所有文章链接
         for a in soup.find_all('a', href=True):
             href = a.get('href', '')
-            # 匹配 Fortune 文章 URL 模式
             if re.match(r'^/202[6-9]/\d{2}/\d{2}/[a-z0-9-]+/$', href):
                 title = a.get_text(strip=True)
                 if title and len(title) > 10:
@@ -230,3 +295,12 @@ class Fortune(BasicNewsRecipe):
                         })
 
         return articles
+
+    def preprocess_raw_html(self, raw_html, url):
+        """预处理文章 HTML"""
+        # 清理无效的命名空间
+        raw_html = raw_html.replace('xmlns:xmlns="http://www.w3.org/2000/svg"', '')
+        raw_html = raw_html.replace('xmlns:xmlns="http://www.w3.org/1999/xhtml"', '')
+        
+        # 使用父类方法处理
+        return BasicNewsRecipe.preprocess_raw_html(self, raw_html, url)
