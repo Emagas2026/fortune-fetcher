@@ -1,15 +1,12 @@
 name: Fetch Fortune Magazine
 
 on:
-  # 自动运行：每周一 UTC 0:00（北京时间周一早上 8:00）
   schedule:
     - cron: '0 0 * * 1'
-  
-  # 手动触发
   workflow_dispatch:
     inputs:
       issue_url:
-        description: 'Magazine archive URL (optional, e.g., https://fortune.com/section/magazine/)'
+        description: 'Magazine archive URL (optional)'
         required: false
         default: ''
 
@@ -17,10 +14,15 @@ jobs:
   fetch-fortune:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
       
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -57,17 +59,14 @@ jobs:
         id: fetch
         shell: bash
         run: |
-          # 确保 recipe 文件存在
           if [ ! -f "helper/Fortune.recipe" ]; then
             echo "❌ Recipe file not found!"
             exit 1
           fi
           
-          # 复制 recipe 到当前目录
           cp "helper/Fortune.recipe" .
           echo "✅ Recipe file ready"
           
-          # 运行脚本
           python helper/main.py fortune "${{ github.event.inputs.issue_url || '' }}"
       
       - name: Upload EPUB
@@ -90,6 +89,9 @@ jobs:
           
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 使用 PAT 或 GITHUB_TOKEN
+          git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           
           mkdir -p "magzines/fortune/$DATE"
           
