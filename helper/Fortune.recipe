@@ -44,6 +44,15 @@ class Fortune(BasicNewsRecipe):
     # 去除广告和无关元素
     remove_attributes = ['style', 'height', 'width']
     remove_empty_feeds = True
+    
+    # ===== 添加 recipe_specific_options =====
+    recipe_specific_options = {
+        'issue_url': {
+            'short': 'Custom magazine archive URL',
+            'long': 'Use a specific URL for the magazine archive page',
+            'default': '',
+        },
+    }
 
     def get_browser(self):
         br = BasicNewsRecipe.get_browser(self)
@@ -68,41 +77,133 @@ class Fortune(BasicNewsRecipe):
     def parse_index(self):
         articles = []
 
-        # 获取最新杂志列表
-        soup = self.index_to_soup('https://fortune.com/section/magazine/')
-        articles = []
+        # ===== 获取自定义 URL，如果没有则使用默认 =====
+        issue_url = self.recipe_specific_options.get('issue_url', '')
+        if issue_url:
+            source_url = issue_url
+            self.log(f'Using custom URL: {source_url}')
+        else:
+            source_url = 'https://fortune.com/section/magazine/'
+            self.log('Using default URL: https://fortune.com/section/magazine/')
 
-        for li in soup.findAll('li', attrs={'class': lambda x: x and 'termArchiveContentList__item--' in x}):
-            a = li.find('a', href=True)
+        # 获取杂志列表
+        soup = self.index_to_soup(source_url)
+
+        # ===== 适配新页面的文章选择器 =====
+        # 尝试多种可能的选择器
+        articles = []
+        
+        # 方法 1: 查找 article 标签（新页面结构）
+        for article in soup.findAll('article'):
+            a = article.find('a', href=True)
             if not a:
                 continue
             
-            url = a['href'].rstrip('/') + '/amp'
-            
-            # 提取标题
-            div = li.find(attrs={'class': lambda x: x and 'termArchiveContentListItem__title--' in x})
-            if not div:
-                continue
+            href = a['href']
+            # 只处理杂志文章链接
+            if '/package/' in href or '/magazine/' in href:
+                url = href.rstrip('/')
+                # 尝试添加 /amp 后缀，但如果页面不支持，就用原链接
+                # 先尝试 amp 版本
+                amp_url = url + '/amp'
                 
-            title = self.tag_to_string(div)
-            if title.startswith('Magazine'):
-                title = title[len('Magazine'):]
-            title = title.strip()
-            
-            # 提取摘要
-            desc = ''
-            div = li.find(attrs={'class': lambda x: x and 'termArchiveContentListItem__excerpt--' in x})
-            if div is not None:
-                desc = self.tag_to_string(div)
-            
-            self.log(f'📄 {title}')
-            self.log(f'   URL: {url}')
-            
-            articles.append({
-                'title': title,
-                'url': url,
-                'description': desc
-            })
+                # 提取标题
+                title = self.tag_to_string(a)
+                if not title:
+                    # 尝试从 h2 或 h3 提取
+                    header = article.find(['h2', 'h3'])
+                    if header:
+                        title = self.tag_to_string(header)
+                
+                if not title:
+                    continue
+                
+                title = title.strip()
+                if title.startswith('Magazine'):
+                    title = title[len('Magazine'):].strip()
+                
+                # 提取摘要
+                desc = ''
+                desc_elem = article.find('p', attrs={'class': lambda x: x and 'excerpt' in x.lower() if x else False})
+                if desc_elem:
+                    desc = self.tag_to_string(desc_elem)
+                
+                # 如果没有找到摘要，尝试其他选择器
+                if not desc:
+                    for p in article.findAll('p'):
+                        text = self.tag_to_string(p)
+                        if len(text) > 30 and text != title:
+                            desc = text
+                            break
+                
+                self.log(f'📄 {title}')
+                self.log(f'   URL: {amp_url}')
+                
+                articles.append({
+                    'title': title,
+                    'url': amp_url,
+                    'description': desc
+                })
+        
+        # 方法 2: 如果方法 1 没找到，尝试旧的 li 选择器（兼容旧页面）
+        if not articles:
+            self.log('Trying fallback parsing with old selector...')
+            for li in soup.findAll('li', attrs={'class': lambda x: x and 'termArchiveContentList__item--' in x}):
+                a = li.find('a', href=True)
+                if not a:
+                    continue
+                
+                url = a['href'].rstrip('/') + '/amp'
+                
+                div = li.find(attrs={'class': lambda x: x and 'termArchiveContentListItem__title--' in x})
+                if not div:
+                    continue
+                    
+                title = self.tag_to_string(div)
+                if title.startswith('Magazine'):
+                    title = title[len('Magazine'):]
+                title = title.strip()
+                
+                desc = ''
+                div = li.find(attrs={'class': lambda x: x and 'termArchiveContentListItem__excerpt--' in x})
+                if div is not None:
+                    desc = self.tag_to_string(div)
+                
+                self.log(f'📄 {title}')
+                self.log(f'   URL: {url}')
+                
+                articles.append({
+                    'title': title,
+                    'url': url,
+                    'description': desc
+                })
+        
+        # 方法 3: 直接查找所有包含杂志链接的 a 标签
+        if not articles:
+            self.log('Trying fallback parsing with direct link search...')
+            for a in soup.findAll('a', href=True):
+                href = a['href']
+                if '/package/' in href or '/magazine/' in href:
+                    # 避免重复
+                    url = href.rstrip('/')
+                    amp_url = url + '/amp'
+                    
+                    title = self.tag_to_string(a)
+                    if title and len(title) > 5:
+                        title = title.strip()
+                        if title.startswith('Magazine'):
+                            title = title[len('Magazine'):].strip()
+                        
+                        # 检查是否已存在
+                        existing_urls = [item['url'] for item in articles]
+                        if amp_url not in existing_urls:
+                            self.log(f'📄 {title}')
+                            self.log(f'   URL: {amp_url}')
+                            articles.append({
+                                'title': title,
+                                'url': amp_url,
+                                'description': ''
+                            })
         
         self.log(f'✅ Found {len(articles)} articles')
         return [('Articles', articles)]
